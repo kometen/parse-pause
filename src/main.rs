@@ -19,11 +19,13 @@ fn main() {
     let mut segment_vector: Vec<Segment> = Vec::new();
 
     let keyword = "silence";
+    let mut chapter = 1;
+    let mut part = 1;
 
     // Command line parameters.
-    let matches = App::new("compare")
+    let matches = App::new("parse-pause")
         .version("0.1")
-        .about("compare sets")
+        .about("parse pause")
         .author("Claus Guttesen")
         .arg(Arg::with_name("file")
             .help("input filename")
@@ -33,7 +35,45 @@ fn main() {
             .long("filename")
             .multiple(false)
         )
+        .arg(Arg::with_name("chapter")
+            .help("chapter transition duration in seconds")
+            .required(true)
+            .takes_value(true)
+            .short("c")
+            .long("chapter")
+            .multiple(false)
+        )
+        .arg(Arg::with_name("part")
+            .help("part transition duration in seconds")
+            .required(true)
+            .takes_value(true)
+            .short("p")
+            .long("part")
+            .multiple(false)
+        )
         .get_matches();
+
+    // convert string to int https://www.programming-idioms.org/idiom/22/convert-string-to-integer/1163/rust
+    let chapter_transition = match matches.value_of("chapter").unwrap().parse::<u32>() {
+        Ok(i) => i,
+        Err(_) => {
+            3
+        }
+    };
+
+    let part_transition = match matches.value_of("part").unwrap().parse::<u32>() {
+        Ok(i) => {
+            if i > chapter_transition {
+                chapter_transition - 1
+            } else {
+                i
+            }
+        },
+        Err(_) => {
+            1
+        }
+    };
+
 
     let file = matches.value_of("file").unwrap();
     let file = File::open(file).unwrap();
@@ -90,8 +130,18 @@ fn main() {
             _ => {}
         }
     }
+
+    // Traverse the vector and divide into chapters and parts.
     for segment in segment_vector {
         let duration: u32 = segment.timeslot[1] - segment.timeslot[0];
+        if duration > chapter_transition * 1000 {
+            chapter += 1;
+            part = 1;
+        }
+        if duration > part_transition * 1000 && duration < chapter_transition * 1000 {
+            part += 1;
+        }
+        println!("title: Chapter {}, part {}", chapter, part);
         println!("offset: {}, duration: {}", segment.offset, duration);
     }
 }
