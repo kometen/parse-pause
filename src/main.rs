@@ -1,4 +1,5 @@
 extern crate clap;
+extern crate iso8601;
 extern crate xml;
 
 use clap::{Arg, App};
@@ -37,9 +38,23 @@ fn main() {
             Ok(XmlEvent::StartElement { name, attributes, .. }) => {
                 let name = name.local_name;
                 if name.eq(keyword) {
-                    print!("{}", name);
+                    print!("{}", name);  // Tag; ie. silence
+                    // name can be from, until. value is iso8601-formatted duration.
                     for attribute in attributes {
                         print!(":{}={}", attribute.name, attribute.value);
+                        let _ = match iso8601::duration(&attribute.value) {
+                            Err(e) => {
+                                print!("Invalid date: {}", e);
+                            },
+                            Ok(v) => {
+                                //print!("Date: {:?}", v);
+                                match v {
+                                    iso8601::Duration::YMDHMS{year, month, day, hour, minute, second, millisecond} =>
+                                        print!("hour: {}, minute: {}, second: {}, millisecond: {}", hour, minute, second, millisecond),
+                                    iso8601::Duration::Weeks(w) => print!("weeks: {}", w)
+                                };
+                            }
+                        };
                     }
                     println!();
                 }
