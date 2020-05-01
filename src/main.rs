@@ -81,9 +81,10 @@ fn main() {
     let parser = EventReader::new(file);
 
     // Initialise with first offset (chapter).
-    let segment = Segment{ offset: "PT0S".to_string(), timeslot: [0,3000] };
+    let segment = Segment{ offset: "PT0S".to_string(), timeslot: [0,chapter_transition * 1000] };
     segment_vector.push(segment);
 
+    // Parse xml.
     for e in parser {
         match e {
             Ok(XmlEvent::StartElement { name, attributes, .. }) => {
@@ -159,6 +160,5 @@ fn main() {
             print_json = false;
         }
     }
-    print!("]");
-    print!("}}");
+    print!("]}}");
 }
