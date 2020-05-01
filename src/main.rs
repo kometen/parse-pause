@@ -9,8 +9,6 @@ use std::io::BufReader;
 use xml::reader::{EventReader, XmlEvent};
 
 fn main() {
-    println!("Jeg æder blåbærsyltetøj!");
-
     struct Segment {
         offset: String,
         timeslot: [u32; 2]
@@ -19,8 +17,10 @@ fn main() {
     let mut segment_vector: Vec<Segment> = Vec::new();
 
     let keyword = "silence";
-    let mut chapter = 1;
-    let mut part = 1;
+    let mut chapter = 0;
+    let mut part = 0;
+    let mut first_row: bool = true;
+    let mut print_json: bool = false;
 
     // Command line parameters.
     let matches = App::new("parse-pause")
@@ -81,7 +81,7 @@ fn main() {
     let parser = EventReader::new(file);
 
     // Initialise with first offset (chapter).
-    let segment = Segment{ offset: "PT0S".to_string(), timeslot: [0,0] };
+    let segment = Segment{ offset: "PT0S".to_string(), timeslot: [0,3000] };
     segment_vector.push(segment);
 
     for e in parser {
@@ -89,7 +89,7 @@ fn main() {
             Ok(XmlEvent::StartElement { name, attributes, .. }) => {
                 let name = name.local_name;
                 if name.eq(keyword) {
-                    print!("{}", name);  // Tag; ie. silence
+                    //print!("{}", name);  // Tag; ie. silence
 
                     // name can be [ from | until ]. value is iso8601-formatted duration.
                     // Use an array to store from at [0] and until at [1].
@@ -98,7 +98,7 @@ fn main() {
                     let mut segment = Segment{ offset: "".to_string(), timeslot: [0, 0]};
 
                     for attribute in attributes {
-                        print!(":{}={}", attribute.name, attribute.value);
+                        //print!(":{}={}", attribute.name, attribute.value);
                         let _ = match iso8601::duration(&attribute.value) {
                             Err(e) => {
                                 print!("Invalid date: {}", e);
@@ -108,7 +108,7 @@ fn main() {
                                 match v {
                                     iso8601::Duration::YMDHMS{year, month, day, hour, minute, second, millisecond} => {
                                         let milliseconds = (hour * 3600 + minute * 60 + second) * 1000 + millisecond;
-                                        print!("hour: {}, minute: {}, second: {}, millisecond: {}, milliseconds: {}", hour, minute, second, millisecond, milliseconds);
+                                        //print!("hour: {}, minute: {}, second: {}, millisecond: {}, milliseconds: {}", hour, minute, second, millisecond, milliseconds);
                                         // Only store from in offset.
                                         if index == 0 { segment.offset = attribute.value; }
                                         segment.timeslot[index] = milliseconds;
@@ -119,7 +119,7 @@ fn main() {
                             }
                         };
                     }
-                    println!();
+                    //println!();
                     segment_vector.push(segment);
                 }
             }
@@ -132,16 +132,33 @@ fn main() {
     }
 
     // Traverse the vector and divide into chapters and parts.
+    print!("{{");
+    print!("\"segments\": [");
     for segment in segment_vector {
         let duration: u32 = segment.timeslot[1] - segment.timeslot[0];
-        if duration > chapter_transition * 1000 {
+        if duration >= chapter_transition * 1000 {
             chapter += 1;
             part = 1;
+            print_json = true;
         }
         if duration > part_transition * 1000 && duration < chapter_transition * 1000 {
             part += 1;
+            print_json = true;
         }
-        println!("title: Chapter {}, part {}", chapter, part);
-        println!("offset: {}, duration: {}", segment.offset, duration);
+        if print_json {
+            if first_row == true {
+                // Do nothing.
+                first_row = false;
+            } else {
+                print!(",");
+            }
+            print!("{{\"title\": \"Chapter {}, part {}\"", chapter, part);
+            print!(", ");
+            print!("\"offset\": \"{}\", \"duration\": \"{}\"}}", segment.offset, duration);
+            print!("");
+            print_json = false;
+        }
     }
+    print!("]");
+    print!("}}");
 }
