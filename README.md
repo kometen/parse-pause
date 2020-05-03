@@ -1,7 +1,7 @@
 # parse-pause
 Detect duration in an xml-file.
 
-Clone repo and open a terminal windows at the top of the source folder. Then build and run the application.
+Clone repo and open a terminal window at the top of the source folder. Then build and run the application.
 
 $ cargo build  
 $ ./target/debug/parse-pause -f pause.xml -c 4 -p 1
