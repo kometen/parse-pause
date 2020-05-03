@@ -108,6 +108,9 @@ fn main() {
                                 //print!("Date: {:?}", v);
                                 match v {
                                     iso8601::Duration::YMDHMS{year, month, day, hour, minute, second, millisecond} => {
+                                        let _ = year;
+                                        let _ = month;
+                                        let _ = day;
                                         let milliseconds = (hour * 3600 + minute * 60 + second) * 1000 + millisecond;
                                         //print!("hour: {}, minute: {}, second: {}, millisecond: {}, milliseconds: {}", hour, minute, second, millisecond, milliseconds);
                                         // Only store from in offset.
