@@ -51,26 +51,41 @@ fn main() {
             .long("part")
             .multiple(false)
         )
+        .arg(Arg::with_name("split")
+            .help("duration in seconds before splitting a chapter into parts")
+            .required(true)
+            .takes_value(true)
+            .short("s")
+            .long("split")
+            .multiple(false)
+        )
         .get_matches();
 
     // convert string to int https://www.programming-idioms.org/idiom/22/convert-string-to-integer/1163/rust
     let chapter_transition = match matches.value_of("chapter").unwrap().parse::<u32>() {
-        Ok(i) => i,
+        Ok(i) => i * 1000,
         Err(_) => {
-            3
+            3 * 1000
         }
     };
 
     let part_transition = match matches.value_of("part").unwrap().parse::<u32>() {
         Ok(i) => {
             if i > chapter_transition {
-                chapter_transition - 1
+                (chapter_transition - 1) * 1000
             } else {
-                i
+                i * 1000
             }
         },
         Err(_) => {
             1
+        }
+    };
+
+    let max_chapter_duration = match matches.value_of("split").unwrap().parse::<u32>() {
+        Ok(i) => i * 1000,
+        Err(_) => {
+            300 * 1000
         }
     };
 
@@ -81,7 +96,7 @@ fn main() {
     let parser = EventReader::new(file);
 
     // Initialise with first offset (chapter).
-    let segment = Segment{ offset: "PT0S".to_string(), timeslot: [0,chapter_transition * 1000] };
+    let segment = Segment{ offset: "PT0S".to_string(), timeslot: [0,chapter_transition] };
     segment_vector.push(segment);
 
     // Parse xml.
@@ -136,32 +151,54 @@ fn main() {
     }
 
     // Traverse the vector and divide into chapters and parts.
+
+    let mut previous_from_timestamp = 0;
+    let mut chapter_duration = 0;
+    let mut part_duration = 0;
+
     print!("{{");
     print!("\"segments\": [");
+
     for segment in segment_vector {
-        let duration: u32 = segment.timeslot[1] - segment.timeslot[0];
-        if duration >= chapter_transition * 1000 {
+
+        let pause_duration: u32 = segment.timeslot[1] - segment.timeslot[0];
+
+        // If pause duration is long enough to mark a chapter, or a chapter duration is long enough it can be split into parts.
+        if (pause_duration >= chapter_transition) || (segment.timeslot[0] - previous_from_timestamp > max_chapter_duration) {
             chapter += 1;
             part = 1;
             print_json = true;
+            chapter_duration = segment.timeslot[0] - previous_from_timestamp;
         }
-        if duration > part_transition * 1000 && duration < chapter_transition * 1000 {
+
+        if pause_duration > part_transition && pause_duration < chapter_transition {
             part += 1;
             print_json = true;
+            part_duration = segment.timeslot[0] - previous_from_timestamp;
         }
+
         if print_json {
+
+            // Don't print comma (,) on first item to make it valid json.
             if first_row == true {
                 // Do nothing.
                 first_row = false;
             } else {
                 print!(",");
             }
-            print!("{{\"title\": \"Chapter {}, part {}\"", chapter, part);
+
+            print!("{{");
+            print!("\"title\": \"Chapter {}, part {}\"", chapter, part);
             print!(", ");
-            print!("\"offset\": \"{}\", \"duration\": \"{}\"}}", segment.offset, duration);
-            print!("");
+            print!("\"offset\": \"{}\", \"pause_duration\": \"{}\"", segment.offset, pause_duration);
+            print!(", ");
+            print!("\"chapter_duration\": \"{}\", \"part_duration\": \"{}\"", chapter_duration, part_duration);
+            print!("}}");
             print_json = false;
         }
+
+        previous_from_timestamp = segment.timeslot[0];
+
     }
     print!("]}}");
 }

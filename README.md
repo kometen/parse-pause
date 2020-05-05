@@ -10,7 +10,3 @@ Duration is in seconds. Internally it is using milliseconds.
 
 It reads the xml-file, add `from` and `until` into a struct which is then pushed to a vector. This vector is traversed
 at the end and print json (handcoded) if chapter or part duration is satisfied.
-
-TODO:
-
-Need to split long chapters into smaller ones.
