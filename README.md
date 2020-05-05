@@ -9,4 +9,4 @@ $ ./target/debug/parse-pause -f pause.xml -c 4 -p 1 -s 220
 Duration is in seconds. Internally it is using milliseconds.
 
 It reads the xml-file, add `from` and `until` into a struct which is then pushed to a vector. This vector is traversed
-at the end and print json (handcoded) if chapter or part duration is satisfied.
+at the end and print json (handcoded) if chapter, part or length duration is satisfied.
