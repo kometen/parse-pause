@@ -153,7 +153,6 @@ fn main() {
     // Traverse the vector and divide into chapters and parts.
 
     let mut previous_from_timestamp = 0;
-    let mut chapter_duration = 0;
     let mut part_duration = 0;
 
     print!("{{");
@@ -168,7 +167,6 @@ fn main() {
             chapter += 1;
             part = 1;
             print_json = true;
-            chapter_duration = segment.timeslot[0] - previous_from_timestamp;
         }
 
         if pause_duration > part_transition && pause_duration < chapter_transition {
@@ -192,7 +190,7 @@ fn main() {
             print!(", ");
             print!("\"offset\": \"{}\", \"pause_duration\": \"{}\"", segment.offset, pause_duration);
             print!(", ");
-            print!("\"chapter_duration\": \"{}\", \"part_duration\": \"{}\"", chapter_duration, part_duration);
+            print!("\"part_duration\": \"{}\"", part_duration);
             print!("}}");
             print_json = false;
         }
