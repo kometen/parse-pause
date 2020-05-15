@@ -5,23 +5,10 @@ extern crate xml;
 use clap::{Arg, App};
 use std::fs::File;
 use std::io::BufReader;
-
+use std::time::Duration;
 use xml::reader::{EventReader, XmlEvent};
 
 fn main() {
-    struct Segment {
-        offset: String,
-        timeslot: [u32; 2]
-    }
-
-    let mut segment_vector: Vec<Segment> = Vec::new();
-
-    let keyword = "silence";
-    let mut chapter = 0;
-    let mut part = 0;
-    let mut first_row: bool = true;
-    let mut print_json: bool = false;
-
     // Command line parameters.
     let matches = App::new("parse-pause")
         .version("0.1")
@@ -89,15 +76,27 @@ fn main() {
         }
     };
 
+    // A unit of time, either from or until in the xml-file. Example:
+    // <silence from="PT3M9S" until="PT3M11S" />
+    // String is in iso8601-format, u32 is the format converted to milliseconds.
+
+    //struct Timestamp(String, u32);
+
+    #[derive(Copy, Clone)]
+    struct Silence {
+        from_ms: u32,
+        until_ms: u32,
+        duration: u32
+    }
+
+    let mut silence_vector: Vec<Silence> = Vec::new();
+    
+    let keyword = "silence";
 
     let file = matches.value_of("file").unwrap();
     let file = File::open(file).unwrap();
     let file = BufReader::new(file);
     let parser = EventReader::new(file);
-
-    // Initialise with first offset (chapter).
-    let segment = Segment{ offset: "PT0S".to_string(), timeslot: [0,chapter_transition] };
-    segment_vector.push(segment);
 
     // Parse xml.
     for e in parser {
@@ -107,11 +106,10 @@ fn main() {
                 if name.eq(keyword) {
                     //print!("{}", name);  // Tag; ie. silence
 
-                    // name can be [ from | until ]. value is iso8601-formatted duration.
-                    // Use an array to store from at [0] and until at [1].
+                    let mut from_ms: u32 = 0;
+                    let mut until_ms = 0;
 
-                    let mut index = 0;
-                    let mut segment = Segment{ offset: "".to_string(), timeslot: [0, 0]};
+                     // name can be [ from | until ]. value is iso8601-formatted duration.
 
                     for attribute in attributes {
                         //print!(":{}={}", attribute.name, attribute.value);
@@ -127,19 +125,22 @@ fn main() {
                                         let _ = month;
                                         let _ = day;
                                         let milliseconds = (hour * 3600 + minute * 60 + second) * 1000 + millisecond;
-                                        //print!("hour: {}, minute: {}, second: {}, millisecond: {}, milliseconds: {}", hour, minute, second, millisecond, milliseconds);
-                                        // Only store from in offset.
-                                        if index == 0 { segment.offset = attribute.value; }
-                                        segment.timeslot[index] = milliseconds;
+                                        //print!("h: {}, m: {}, s: {}, ms: {}, total ms: {}", hour, minute, second, millisecond, milliseconds);
+                                        if attribute.name.to_string() == "from".to_string() {
+                                            from_ms = milliseconds;
+                                        } else if attribute.name.to_string() == "until".to_string() {
+                                            until_ms = milliseconds;
+                                        }
                                     },
                                     iso8601::Duration::Weeks(w) => print!("weeks: {}", w)
                                 };
-                                index += 1;
                             }
                         };
                     }
                     //println!();
-                    segment_vector.push(segment);
+                    let silence_duration = until_ms - from_ms;
+                    let silence = Silence{from_ms: from_ms, until_ms: until_ms, duration: silence_duration};
+                    silence_vector.push(silence);
                 }
             }
             Err(e) => {
@@ -150,53 +151,100 @@ fn main() {
         }
     }
 
-    // Traverse the vector and divide into chapters and parts.
+    #[derive(Copy, Clone)]
+    struct Part {
+        from_ms: u32,
+        until_ms: u32,
+        duration: u32
+    }
+    
+    let mut part_vector: Vec<Part> = Vec::new();
+    let mut previous_from_ms: u32 = 0;
+    let mut current_from_ms :u32;
 
-    let mut previous_from_timestamp = 0;
-    let mut part_duration = 0;
+    // Traverse silence-vector and calculate part-duration (and from- and until-ms) and push it to part-vector.
+    // This way we get the duration of a part.
+    for silence in &silence_vector {
+        current_from_ms = silence.from_ms;
+        let part = Part{from_ms: previous_from_ms, until_ms: current_from_ms, duration: silence.from_ms - previous_from_ms};
+        part_vector.push(part);
+        previous_from_ms = current_from_ms;
+        //println!("from ms: {}, until ms: {}, duration: {}", silence.from_ms, silence.until_ms, silence.duration);
+    }
+
+    struct Segment {
+        chapter: u32,
+        part: u32,
+        offset: String,
+        duration: u32
+    }
+
+    let mut segment_vector: Vec<Segment> = Vec::new();
+    let mut chapter = 1;
+    let mut part = 1;
+    let mut offset = "PT0S".to_string();
+
+    let segment = Segment{chapter, part, offset, duration: part_vector[0].duration};
+    segment_vector.push(segment);
+    
+    // And then to check whether a pause is long enough to make a chapter or part, or if a part is long enought and treat it like a chapter.
+    for (i, silence) in silence_vector.iter().enumerate() {
+        if (silence.duration >= chapter_transition) || (part_vector[i].duration > max_chapter_duration) {
+            chapter += 1;
+            part = 1;
+            offset = duration2string(silence.until_ms as u64);
+            let segment = Segment{chapter, part, offset, duration: part_vector[i].duration};
+            segment_vector.push(segment);
+        } else if silence.duration > part_transition && silence.duration < chapter_transition {
+            part += 1;
+            offset = duration2string(silence.until_ms as u64);
+            let segment = Segment{chapter, part, offset, duration: part_vector[i].duration};
+            segment_vector.push(segment);
+        }
+    }
+
+    let mut first_row: bool = true;
 
     print!("{{");
     print!("\"segments\": [");
 
     for segment in segment_vector {
+        //println!("{}, {}, {}, {}", segment.chapter, segment.part, segment.offset, segment.duration);
 
-        let pause_duration: u32 = segment.timeslot[1] - segment.timeslot[0];
-
-        // If pause duration is long enough to mark a chapter, or a chapter duration is long enough it can be split into parts.
-        if (pause_duration >= chapter_transition) || (segment.timeslot[0] - previous_from_timestamp > max_chapter_duration) {
-            chapter += 1;
-            part = 1;
-            print_json = true;
+        // Don't print comma (,) on first item to make it valid json.
+        if first_row == true {
+            // Do nothing.
+            first_row = false;
+        } else {
+            print!(",");
         }
 
-        if pause_duration > part_transition && pause_duration < chapter_transition {
-            part += 1;
-            print_json = true;
-            part_duration = segment.timeslot[0] - previous_from_timestamp;
-        }
-
-        if print_json {
-
-            // Don't print comma (,) on first item to make it valid json.
-            if first_row == true {
-                // Do nothing.
-                first_row = false;
-            } else {
-                print!(",");
-            }
-
-            print!("{{");
-            print!("\"title\": \"Chapter {}, part {}\"", chapter, part);
-            print!(", ");
-            print!("\"offset\": \"{}\", \"pause_duration\": \"{}\"", segment.offset, pause_duration);
-            print!(", ");
-            print!("\"part_duration\": \"{}\"", part_duration);
-            print!("}}");
-            print_json = false;
-        }
-
-        previous_from_timestamp = segment.timeslot[0];
-
+        print!("{{");
+        print!("\"title\": \"Chapter {}, part {}\"", segment.chapter, segment.part);
+        print!(", ");
+        print!("\"offset\": \"{}\", \"part_duration_ms\": \"{}\"", segment.offset, segment.duration);
+        print!("}}");
     }
+
     print!("]}}");
+}
+
+fn duration2string(d: u64) -> String {
+    let duration = Duration::from_millis(d);
+    let ms_part = duration.as_millis() - (duration.as_secs() * 1000) as u128;
+    let hours = duration.as_secs() / 3600;
+    let seconds = duration.as_secs() - hours * 3600 ;
+    let minutes = seconds / 60;
+    let seconds = seconds - minutes * 60;
+    let mut return_string = "PT".to_string();
+    if hours > 0 {
+        return_string = return_string + &hours.to_string() + &"H";
+    }
+    if minutes > 0 {
+        return_string = return_string + &minutes.to_string() + &"M";
+    }
+    return_string = return_string + &seconds.to_string() + &"."
+     + &format!("{:03}", &ms_part) + &"S";
+
+    return return_string;
 }
