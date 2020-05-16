@@ -153,8 +153,6 @@ fn main() {
 
     #[derive(Copy, Clone)]
     struct Part {
-        from_ms: u32,
-        until_ms: u32,
         duration: u32
     }
     
@@ -162,11 +160,13 @@ fn main() {
     let mut previous_from_ms: u32 = 0;
     let mut current_from_ms :u32;
 
-    // Traverse silence-vector and calculate part-duration (and from- and until-ms) and push it to part-vector.
+    // Traverse silence-vector and calculate part-duration and push it to part-vector.
     // This way we get the duration of a part.
     for silence in &silence_vector {
         current_from_ms = silence.from_ms;
-        let part = Part{from_ms: previous_from_ms, until_ms: current_from_ms, duration: silence.from_ms - previous_from_ms};
+        let part = Part{
+            duration: silence.from_ms - previous_from_ms
+        };
         part_vector.push(part);
         previous_from_ms = current_from_ms;
         //println!("from ms: {}, until ms: {}, duration: {}", silence.from_ms, silence.until_ms, silence.duration);
