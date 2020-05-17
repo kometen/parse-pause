@@ -7,6 +7,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::time::Duration;
 use xml::reader::{EventReader, XmlEvent};
+use std::collections::HashMap;
 
 fn main() {
     // Command line parameters.
@@ -80,14 +81,10 @@ fn main() {
     // <silence from="PT3M9S" until="PT3M11S" />
     // String is in iso8601-format, u32 is the format converted to milliseconds.
 
-    //struct Timestamp(String, u32);
-
     #[derive(Copy, Clone)]
     struct Silence {
         from_ms: u32,
-        until_ms: u32,
-        duration: u32
-    }
+        until_ms: u32    }
 
     let mut silence_vector: Vec<Silence> = Vec::new();
     
@@ -137,9 +134,8 @@ fn main() {
                             }
                         };
                     }
-                    //println!();
-                    let silence_duration = until_ms - from_ms;
-                    let silence = Silence{from_ms: from_ms, until_ms: until_ms, duration: silence_duration};
+                    let silence = Silence{from_ms: from_ms, until_ms: until_ms};
+                    //println!("pause-duration: {}", until_ms - from_ms);
                     silence_vector.push(silence);
                 }
             }
@@ -151,57 +147,104 @@ fn main() {
         }
     }
 
+    // Part-duration and silence-duration. Total duration is with silence_until_ms. silence_from_ms is implicitly until_ms.
     #[derive(Copy, Clone)]
     struct Part {
-        duration: u32
+        from_ms: u32,
+        until_ms: u32,
+        silence_until_ms: u32
     }
     
     let mut part_vector: Vec<Part> = Vec::new();
     let mut previous_from_ms: u32 = 0;
-    let mut current_from_ms :u32;
 
-    // Traverse silence-vector and calculate part-duration and push it to part-vector.
-    // This way we get the duration of a part.
+    // Traverse silence-vector and calculate part-duration and push to part-vector.
     for silence in &silence_vector {
-        current_from_ms = silence.from_ms;
         let part = Part{
-            duration: silence.from_ms - previous_from_ms
+            from_ms: previous_from_ms,
+            until_ms: silence.from_ms,
+            silence_until_ms: silence.until_ms
         };
         part_vector.push(part);
-        previous_from_ms = current_from_ms;
-        //println!("from ms: {}, until ms: {}, duration: {}", silence.from_ms, silence.until_ms, silence.duration);
+        previous_from_ms = silence.until_ms;
+        //println!("part-duration: {}", duration2string(part.duration as u64));
     }
 
+    struct Chapter {
+        chapter: u32,
+        part: u32,
+        from_ms: u32,
+        until_ms: u32
+    }
+
+    let mut chapter_vector: Vec<Chapter> = Vec::new();
+    let mut chapter = 1;
+    let mut part = 1;
+
+    let segment = Chapter{
+        chapter, part, from_ms: 0, until_ms: 0
+    };
+    chapter_vector.push(segment);
+    
+    // Check whether a pause is long enough to make a chapter or part, or if a part is long enough to treat it like a chapter.
+    for p in part_vector {
+        let silent_duration_ms = p.silence_until_ms - p.until_ms;
+        let part_duration = p.until_ms - p.from_ms;
+        if (silent_duration_ms >= chapter_transition) || (part_duration > max_chapter_duration) {
+            chapter += 1;
+            part = 1;
+            let ch = Chapter{
+                chapter, part, from_ms: p.from_ms, until_ms: p.silence_until_ms
+            };
+            chapter_vector.push(ch);
+        } else if silent_duration_ms > part_transition && silent_duration_ms < chapter_transition {
+            part += 1;
+            let ch = Chapter{
+                chapter, part, from_ms: p.from_ms, until_ms: p.silence_until_ms
+            };
+            chapter_vector.push(ch);
+        }
+    }
+
+    // Now we have chapters and parts. But duration between parts is not aligned since not all parts
+    // designate a chapter or a part. This produces gaps in the output. Traverse the chapter-vector to
+    // properly align duration of chapter and part.
     struct Segment {
         chapter: u32,
         part: u32,
-        offset: String,
-        duration: u32
+        offset_ms: u32,
+        duration_ms: u32
     }
 
+    let mut chapter_hashmap: HashMap<u32, u32> = HashMap::new();
     let mut segment_vector: Vec<Segment> = Vec::new();
-    let mut chapter = 1;
-    let mut part = 1;
-    let mut offset = "PT0S".to_string();
+    let mut previous_chapter = 1;
+    let mut previous_chapter_timestamp = 0;
+    let mut last_part_timestamp = 0;
 
-    let segment = Segment{chapter, part, offset, duration: part_vector[0].duration};
-    segment_vector.push(segment);
-    
-    // And then to check whether a pause is long enough to make a chapter or part, or if a part is long enought and treat it like a chapter.
-    for (i, silence) in silence_vector.iter().enumerate() {
-        if (silence.duration >= chapter_transition) || (part_vector[i].duration > max_chapter_duration) {
-            chapter += 1;
-            part = 1;
-            offset = duration2string(silence.until_ms as u64);
-            let segment = Segment{chapter, part, offset, duration: part_vector[i].duration};
-            segment_vector.push(segment);
-        } else if silence.duration > part_transition && silence.duration < chapter_transition {
-            part += 1;
-            offset = duration2string(silence.until_ms as u64);
-            let segment = Segment{chapter, part, offset, duration: part_vector[i].duration};
-            segment_vector.push(segment);
+    // First put chapter in hashmap so we get chapter-duration.
+    // Then align offset.
+    for (i, chapter) in chapter_vector.iter().enumerate() {
+        if chapter.chapter > previous_chapter {
+            chapter_hashmap.insert(previous_chapter, chapter.until_ms - previous_chapter_timestamp);
+            previous_chapter = chapter.chapter;
+            previous_chapter_timestamp = chapter.from_ms;
         }
+
+        let duration = match chapter_vector.get(i + 1) {
+            Some(duration) => duration.from_ms,
+            None => chapter_vector[i].until_ms
+        };
+        let segment = Segment{
+            chapter: chapter.chapter,
+            part: chapter.part,
+            offset_ms: chapter.from_ms,
+            duration_ms: duration - chapter.from_ms
+        };
+        segment_vector.push(segment);
+        last_part_timestamp = chapter.from_ms;
     }
+    chapter_hashmap.insert(previous_chapter, last_part_timestamp - previous_chapter_timestamp);
 
     let mut first_row: bool = true;
 
@@ -219,14 +262,27 @@ fn main() {
             print!(",");
         }
 
+        let chapter = match chapter_hashmap.get(&segment.chapter) {
+            Some(chapter) => chapter,
+            _ => &1
+        };
+
         print!("{{");
         print!("\"title\": \"Chapter {}, part {}\"", segment.chapter, segment.part);
         print!(", ");
-        print!("\"offset\": \"{}\", \"part_duration_ms\": \"{}\"", segment.offset, segment.duration);
+        print!("\"offset\": \"{}\"", duration2string(segment.offset_ms as u64));
+        print!(", ");
+        print!("\"part_duration\": \"{}\"", duration2string(segment.duration_ms as u64));
+        print!(", ");
+        print!("\"chapter_duration\": \"{}\"", duration2string(*chapter as u64));
         print!("}}");
     }
 
     print!("]}}");
+
+    for chapter in chapter_hashmap {
+        println!("{}, {}", chapter.0, duration2string(chapter.1 as u64));
+    }
 }
 
 fn duration2string(d: u64) -> String {
