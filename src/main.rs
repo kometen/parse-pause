@@ -280,9 +280,9 @@ fn main() {
 
     print!("]}}");
 
-    for chapter in chapter_hashmap {
+/*    for chapter in chapter_hashmap {
         println!("{}, {}", chapter.0, duration2string(chapter.1 as u64));
-    }
+    }*/
 }
 
 fn duration2string(d: u64) -> String {
