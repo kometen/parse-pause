@@ -3,7 +3,7 @@ Detect duration in an xml-file.
 
 Clone repo and open a terminal window at the top of the source folder. Then build and run the application.
 
-$ cargo build  
+$ `cargo build  `
 $ ./target/debug/parse-pause -f pause.xml -c 4 -p 1 -s 220
 
 Duration is in seconds. Internally it is using milliseconds.
