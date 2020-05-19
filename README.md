@@ -1,5 +1,5 @@
 # parse-pause
-Detect chapters and parts based on is08601-durations in an xml-file.
+Detect chapters and parts based on iso8601-durations in an xml-file.
 
 Clone repo and open a terminal window at the top of the source folder. Then build and run the application.
 
